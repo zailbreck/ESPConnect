@@ -791,19 +791,28 @@ int mercury_recv(mercury_session_t *s, uint8_t *cmd,
                  uint8_t *data, size_t *out_len, size_t max_len) {
     if (!s || s->sock == PLATFORM_SOCKET_INVALID) return -1;
 
-    uint8_t hdr[4];
-    if (platform_tcp_read(s->sock, hdr, 4) != 0) {
+    uint8_t hdr[3];
+    if (platform_tcp_read(s->sock, hdr, 3) != 0) {
         fprintf(stderr, "[mercury] read hdr fail\n");
         return -1;
     }
-    fprintf(stderr, "[mercury] RAW hdr hex = %02x %02x %02x %02x\n", hdr[0], hdr[1], hdr[2], hdr[3]);
+    fprintf(stderr, "[mercury] RAW hdr hex = %02x %02x %02x\n", hdr[0], hdr[1], hdr[2]);
 
     /* The server might send an unencrypted APResponseMessage (e.g. APLoginFailed) if LoginReq fails. */
     if (hdr[0] == 0x00 && hdr[1] == 0x00 && hdr[2] == 0x00) {
-        uint32_t tot = (hdr[0]<<24)|(hdr[1]<<16)|(hdr[2]<<8)|hdr[3];
+        uint8_t hdr_rem[1];
+        if (platform_tcp_read(s->sock, hdr_rem, 1) != 0) return -1;
+        uint32_t tot = (hdr[0]<<24)|(hdr[1]<<16)|(hdr[2]<<8)|hdr_rem[0];
         uint8_t err_buf[256];
         if (tot > 4 && tot <= sizeof(err_buf) + 4) {
             platform_tcp_read(s->sock, err_buf, tot - 4);
+            
+            fprintf(stderr, "[mercury] err_buf hex: ");
+            for (size_t i=0; i < tot - 4; i++) {
+                fprintf(stderr, "%02x", err_buf[i]);
+            }
+            fprintf(stderr, "\n");
+
             /* Parse for login_failed (field 30 = 0xF2 0x01) */
             if (err_buf[0] == 0xf2 && err_buf[1] == 0x01) {
                 fprintf(stderr, "[mercury] Server returned APLoginFailed (BadCredentials/etc)\n");
